@@ -7,9 +7,10 @@ Multi-protocol proxy (VLESS/Trojan/VMess over XHTTP/WS) via Cloudflare Argo Tunn
 | Variable | Required | Description |
 |---|---|---|
 | `ARGO_AUTH` | **Yes** | Cloudflare Tunnel token |
-| `ARGO_DOMAIN` deve | **Yes** | Tunnel domain (e.g. `argo-xray.maniakov.bond`) |
+| `ARGO_DOMAIN` | **Yes** | Tunnel domain (e.g. `argo-xray.maniakov.bond`) |
 | `UUID` | **Yes** | VLESS/VMess UUID |
 | `TROJAN_PASSWORD` | No | Trojan password (defaults to UUID) |
+| `SOCKS_PORT` / `PROXY_PORT` | No | SOCKS5 & HTTP mixed proxy port (default: `10808`) |
 | `CFIP` | No | Clean IP / edge IP (default: `ip.sb`) |
 | `CFPORT` | No | Edge port (default: `443`) |
 | `EDGE_IP_VERSION` | No | `4`, `6`, or `auto` (default: `auto`) |
@@ -76,6 +77,34 @@ export UUID="0f7cd3f5-f149-4c6e-aa25-bbbb8b468c38"
 # Start the server
 node server.js
 ```
+
+## Connecting Bots via SOCKS5 (Railway TCP Proxy / Direct)
+
+Bots (like Netflix Cookie Checker, Telegram/Discord bots, crawlers) require a standard `socks5://` or `http://` URL, not `vless://` subscription links.
+
+This project includes an integrated **Xray Mixed Inbound** (supports both SOCKS5 and HTTP proxy on the same port):
+
+### On Railway:
+1. In Railway Dashboard -> Service -> **Settings** -> **Networking**
+2. Under **Public Networking**, click **Add TCP Proxy**
+3. Select port `10808` (or your custom `SOCKS_PORT` / `8888`)
+4. Railway gives you a TCP Proxy address, e.g. `crossover.proxy.rlwy.net:47481`
+5. Configure your bot:
+   ```
+   socks5://crossover.proxy.rlwy.net:47481
+   # or http://crossover.proxy.rlwy.net:47481
+   ```
+
+### On Docker / VPS:
+Expose port 10808 (`-p 10808:10808`). Then connect via `socks5://<YOUR_IP>:10808`.
+
+### Fetching Unencoded Subscription Links:
+If you need raw text subscription links without base64 decoding:
+- Direct link: `https://argo-xray.maniakov.bond/raw`
+- Or in PowerShell:
+  ```powershell
+  [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String((curl.exe -s https://argo-xray.maniakov.bond/jd)))
+  ```
 
 ## Docker Deployment (Optional)
 

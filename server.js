@@ -20,6 +20,7 @@ const {
   SUB_PATH = "jd",
   SERVER_PORT = process.env.PORT || "3000",
   GATEWAY_PORT = "2082",
+  PROXY_PORT = process.env.SOCKS_PORT || "10808",
 
   UUID = "0f7cd3f5-f149-4c6e-aa25-bbbb8b468c38",
   TROJAN_PASSWORD = "",
@@ -32,8 +33,8 @@ const {
   XRAY_REPO = "XTLS/Xray-core",
   CLOUDFLARED_REPO = "cloudflare/cloudflared",
 
-  ARGO_DOMAIN = "",
-  ARGO_AUTH = "",
+  ARGO_DOMAIN = "argo-xray.maniakov.bond",
+  ARGO_AUTH = "eyJhIjoiNWIzZjI2YjU2OTIxODViNzdhODZiYzI0OTE3YTk2OGYiLCJ0IjoiZDYzNzA2NTctYjk2YS00YTZkLTg1YWQtMDgxMmVlNmQzYzEzIiwicyI6InF1NlBYSDVDTEQxVFNkQjhvbXVQM2grNVh3VkZneFp0c3pGU1B0Ri9VYkk9In0=",
   ARGO_PROTOCOL = "http2",
   EDGE_IP_VERSION = "auto",
 
@@ -48,6 +49,7 @@ const {
 const VERSION = "4.2.2";
 const PORT = Number.parseInt(SERVER_PORT, 10);
 const PUBLIC_LOCAL_PORT = Number.parseInt(GATEWAY_PORT, 10);
+const SOCKS_PORT = Number.parseInt(PROXY_PORT, 10);
 const EDGE_PORT = Number.parseInt(CFPORT, 10);
 const AUTO_ACCESS_ENABLED = String(AUTO_ACCESS).toLowerCase() === "true";
 const KOMARI_ENABLED = Boolean(KOMARI_SERVER && KOMARI_KEY);
@@ -115,6 +117,7 @@ const PROTOCOLS = Object.freeze({
 
 validatePort(PORT, "SERVER_PORT");
 validatePort(PUBLIC_LOCAL_PORT, "GATEWAY_PORT");
+validatePort(SOCKS_PORT, "SOCKS_PORT");
 validatePort(EDGE_PORT, "CFPORT");
 validateUUID(UUID);
 const TUNNEL_PROTOCOL = ["http2", "quic", "auto"].includes(String(ARGO_PROTOCOL).toLowerCase())
@@ -122,8 +125,8 @@ const TUNNEL_PROTOCOL = ["http2", "quic", "auto"].includes(String(ARGO_PROTOCOL)
 const EDGE_IP_MODE = ["4", "6", "auto"].includes(String(EDGE_IP_VERSION).toLowerCase())
   ? String(EDGE_IP_VERSION).toLowerCase() : "auto";
 
-if (PORT === PUBLIC_LOCAL_PORT) {
-  throw new Error("SERVER_PORT 不能与 GATEWAY_PORT 相同");
+if (PORT === PUBLIC_LOCAL_PORT || PORT === SOCKS_PORT || PUBLIC_LOCAL_PORT === SOCKS_PORT) {
+  throw new Error("SERVER_PORT, GATEWAY_PORT, 和 SOCKS_PORT 不能相同");
 }
 
 for (const def of Object.values(PROTOCOLS)) {
@@ -334,18 +337,40 @@ function makeInbound(key, def) {
   return inbound;
 }
 
+// SOCKS5/HTTP mixed inbound for public proxy access (e.g. for bots via Railway TCP Proxy)
+function makeSocks5Inbound() {
+  return {
+    tag: "socks5-in",
+    listen: "0.0.0.0",
+    port: SOCKS_PORT,
+    protocol: "mixed",
+    settings: {
+      auth: "noauth",
+      udp: true,
+    },
+    sniffing: {
+      enabled: true,
+      destOverride: ["http", "tls"],
+    },
+  };
+}
+
 function generateXrayConfig() {
+  const xrayDomainStrategy = EDGE_IP_MODE === "4" ? "UseIPv4" : "UseIP";
   const config = {
     log: { loglevel: "warning" },
-    inbounds: Object.entries(PROTOCOLS).map(([key, def]) => makeInbound(key, def)),
+    inbounds: [
+      ...Object.entries(PROTOCOLS).map(([key, def]) => makeInbound(key, def)),
+      makeSocks5Inbound(),
+    ],
     outbounds: [
-      { tag: "direct", protocol: "freedom", settings: { domainStrategy: "UseIP" } },
+      { tag: "direct", protocol: "freedom", settings: { domainStrategy: xrayDomainStrategy } },
       { tag: "block", protocol: "blackhole" },
     ],
   };
 
   fs.writeFileSync(PATHS.config, JSON.stringify(config, null, 2), { mode: 0o600 });
-  console.log(`Xray 配置已生成，共 ${config.inbounds.length} 个入口`);
+  console.log(`Xray 配置已生成，共 ${config.inbounds.length} 个入口 (含 SOCKS5/HTTP 混合端口: ${SOCKS_PORT})`);
 }
 
 async function download(url, destination) {
@@ -752,6 +777,13 @@ async function startComponents() {
     console.log(`${def.label} 正在监听 127.0.0.1:${def.port}`);
   }
 
+  // SOCKS5/HTTP mixed proxy port
+  if (!(await waitForPort(SOCKS_PORT))) {
+    console.warn(`SOCKS5/HTTP proxy 未监听 ${SOCKS_PORT}，请检查 xray 配置`);
+  } else {
+    console.log(`SOCKS5/HTTP mixed proxy 正在监听 0.0.0.0:${SOCKS_PORT}`);
+  }
+
   await startGateway();
 
   startProcess("cloudflared", PATHS.cloudflared, cloudflaredArgs(), PATHS.cloudflaredLog);
@@ -999,6 +1031,7 @@ app.get("/debug", (req, res) => {
         domain: DOMAIN,
         edge: String(CFIP || "").trim() || DOMAIN,
         edgePort: EDGE_PORT,
+        socksPort: SOCKS_PORT,
         uuidPrefix: UUID.substring(0, 8),
         trojanSecretPrefix: TROJAN_SECRET.substring(0, 3),
         subExists: exists(PATHS.sub),
@@ -1038,6 +1071,7 @@ async function main() {
   console.log(`架构: ${SYSTEM_ARCH}`);
   console.log(`客户端统一端口: ${EDGE_PORT}`);
   console.log(`Tunnel 本地入口: 127.0.0.1:${PUBLIC_LOCAL_PORT}`);
+  console.log(`SOCKS5/HTTP 端口: 0.0.0.0:${SOCKS_PORT}`);
   console.log("=".repeat(64));
 
   await killOldProcesses();

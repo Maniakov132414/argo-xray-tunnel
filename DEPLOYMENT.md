@@ -26,6 +26,7 @@ ARGO_PROTOCOL=http2
 # Server ports
 SERVER_PORT=3000
 GATEWAY_PORT=2082
+SOCKS_PORT=10808
 
 # Node name prefix
 NAME=sap
