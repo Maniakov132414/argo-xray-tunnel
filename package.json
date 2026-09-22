@@ -1,0 +1,14 @@
+{
+  "name": "argo-xray-tunnel",
+  "version": "4.2.2",
+  "description": "Multi-protocol Xray tunnel via Cloudflare Argo (VLESS/Trojan/VMess over XHTTP/WS)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "axios": "^1.7.0",
+    "adm-zip": "^0.5.16"
+  }
+}
